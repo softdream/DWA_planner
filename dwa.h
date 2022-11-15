@@ -33,15 +33,21 @@ public:
 
 	}
 
-	const Vector2 processOnce( const Vector5& curr, const Vector2& goal, const sensor::ScanContainer& scan )
+	const Vector2 processOnce( const Vector5& curr, const Vector2& goal, const sensor::ScanContainer& scan, std::vector<std::vector<Vector2>>& traj_vec )
 	{
 		Vector2 u = Vector2::Zero();		
 
 		Vector4 window = cacuDynamicWindow( curr );
+		std::cout<<"window = "<<window.transpose()<<std::endl;		
 
 		std::vector<Vector6> eval_vec;
-		evaluation( curr, window, goal, scan, eval_vec );
+		evaluation( curr, window, goal, scan, eval_vec, traj_vec );
 		
+		//std::cout<<"traj_vec.size = "<<traj_vec.size()<<std::endl;
+		//for( auto& traj : traj_vec ){
+		//	std::cout<<"traj.size = "<<traj.size()<<std::endl;
+		//}
+
 		if( eval_vec.empty() ){
 			std::cout<<"No path to planer !"<<std::endl;
 			return u;
@@ -50,22 +56,26 @@ public:
 		normalizeEval( eval_vec );
 
 		for( int i = 0; i < eval_vec.size(); i ++ ){
-			eval_vec[5] = 0.3 * eval_vec[2] + 0.3 * eval_vec[3] + 0.3 * eval_vec[4];
+			eval_vec[i][5] = 0.3 * eval_vec[i][2] + 0.5 * eval_vec[i][3] + 0.3 * eval_vec[i][4];
 		}		
 
 		DataType max_score = std::numeric_limits<DataType>::min();
 		int index = -1;
 		for( int i = 0; i < eval_vec.size(); i ++ ){
-			if( max_score < eval_vec[5] ){
-				max_score = eval_vec[5];
+			std::cout<<"score ["<<i<<"] = "<<eval_vec[i][5]<<std::endl;
+			if( max_score < eval_vec[i][5] ){
+				max_score = eval_vec[i][5];
 				index = i;
 			}
 		}
+		std::cout<<"max socore index = "<<index<<std::endl;
 
 		if( index != -1 ){
 			u[0] = eval_vec[index][0];
 			u[1] = eval_vec[index][1];
 		}
+
+		std::cout<<"max score = "<<max_score<<std::endl;
 		
 		return u;
 	}	
@@ -91,7 +101,7 @@ private:
 	{
 		Vector4 velocity_window;
 		
-		velocity_window[0] = std::max( 0.0, state[3] - linear_acc * dt ); // minimum linear velocity
+		velocity_window[0] = std::max( 0.03f, state[3] - linear_acc * dt ); // minimum linear velocity
 		velocity_window[1] = std::min( max_linear_velo, state[3] + linear_acc * dt ); // maxmum linear velocity
 		velocity_window[2] = std::max( -max_angular_velo, state[4] - angular_acc * dt ); // minimum angular velocity
 		velocity_window[3] = std::min( max_angular_velo, state[4] + angular_acc * dt ); // maxmum angular velocity
@@ -99,7 +109,7 @@ private:
 		return velocity_window;
 	}
 
-	const Vector5 generateTrajectory( const Vector5& curr, const std::vector<Vector2>& traj, const DataType vt, const DataType wt )
+	const Vector5 generateTrajectory( const Vector5& curr, std::vector<Vector2>& traj, const DataType vt, const DataType wt )
 	{
 		DataType time = 0.0;
 
@@ -110,6 +120,8 @@ private:
 		while( time < prediction_time ){
 			time += dt;
 			predict_state = motionModel( predict_state, Vector2( vt, wt ) );
+			//std::cout<<"predicted state = "<<predict_state.transpose()<<std::endl;
+	
 			traj.push_back( Vector2( predict_state[0], predict_state[1] ) );
 		}	
 	
@@ -118,31 +130,41 @@ private:
 
 	const DataType cacuHeadingEval( const Vector5& state, const Vector2& goal )
 	{
-		DataType robot_heading = state[2] / M_PI * 180;
-		DataType goal_heading = ::atan2( goal[1] - state[1], goal[0] - state[0] ) / M_PI * 180;
-	
+		//DataType robot_heading = state[2] / M_PI * 180;
+		//DataType goal_heading = ::atan2( goal[1] - state[1], goal[0] - state[0] ) / M_PI * 180;
+		DataType robot_heading = state[2];	
+		DataType goal_heading = ::atan2( goal[1] - state[1], goal[0] - state[0] );
+		//std::cout<<"robot_heading : "<<robot_heading<<", goal_heading : "<<goal_heading<<std::endl;	
+
 		DataType target_heading = std::abs( goal_heading - robot_heading );
-        	return 180 - robot_heading;
+		return M_PI - target_heading;
 	}
 
-	const DataType cacuDistEval( const Vector5& state, sensor::ScanContainer& scan )
+	const DataType cacuDistEval( const Vector5& state, const sensor::ScanContainer& scan )
 	{
 		DataType dist_min = std::numeric_limits<DataType>::max();
+		int index = -1;
 		for( int i = 0; i < scan.getSize(); i ++ ){
-			DataType dist = ::sqrt( ( scan[i][0] - state[0] ) * ( scan[i][0] - state[0] ) +  ( scan[i][1] - state[1] ) * ( scan[i][1] - state[1] ) ) - R;
+			Vector2 tmp = scan.getIndexData(i);
+			Vector2 pose( state[0], state[1] );
+			//std::cout<<"pose = "<<pose.transpose()<<std::endl;
+			DataType dist = (pose - tmp).norm();
+		
 			if( dist_min > dist ){
 				dist_min = dist;
+				index = i;
 			}
 		}
+		std::cout<<"dist min = "<<dist_min<<", index = "<<index<<", scan[index] = "<<scan.getIndexData(index).transpose()<<std::endl;
 
-		if( dist_min > 2 * R ){
-			dist_min = 2 * R;
-		}
+		//if( dist_min > 2 * R ){
+		//	dist_min = 2 * R;
+		//}
 
 		return dist_min;
 	}
 
-	const DataType cacuBreakingDist(const DataType& vel, const DataType& acc)
+	const DataType cacuBreakingDist(DataType& vel, const DataType& acc)
         {
         	DataType stop_dist = 0;
         	while (vel > 0){
@@ -164,15 +186,46 @@ private:
 				DataType dist = cacuDistEval( x_predict, scan );
 				DataType vel = std::abs( v );
 				DataType stop_dist = cacuBreakingDist( vel, linear_acc );
-				
+				std::cout<<"heading = "<<heading<<", dist = "<<dist<<", vel = "<<vel<<", stop_dist = "<<stop_dist<<std::endl;				
+
 				if( dist > stop_dist ){
-					eval_vec.push_back( { v, w, heading, dist, vel, 0 } );
+					Vector6 eval;
+					eval << v, w, heading, dist, vel, 0;
+					eval_vec.push_back( eval );
 				}
 			}
 		}
 	}
+	
+	void evaluation( const Vector5& state, const Vector4& window, const Vector2& goal, const sensor::ScanContainer& scan, std::vector<Vector6>& eval_vec, std::vector<std::vector<Vector2>>& traj_vec  )
+        {
+                std::vector<Vector2> traj;
+                for( DataType v = window[0]; v <= window[1]; v += linear_velo_resolution ){
+                        for( DataType w = window[2]; w <= window[3]; w += angular_velo_resolution ){
+				std::cout<<"--------- v = "<<v<<", w = "<<w<<"----------"<<std::endl;
+				
+                                Vector5 x_predict = generateTrajectory( state, traj, v, w );
+				traj_vec.push_back( traj );
+				//std::cout<<"traj_vec.size = "<<traj_vec.size()<<std::endl;
+			
+				std::cout<<"x_predict = "<<x_predict.transpose()<<std::endl;
+                                DataType heading = cacuHeadingEval( x_predict, goal );
+                                DataType dist = cacuDistEval( x_predict, scan );
+                                DataType vel = std::abs( v );
+                                DataType stop_dist = cacuBreakingDist( vel, linear_acc );
+				std::cout<<"heading = "<<heading<<", dist = "<<dist<<", vel = "<<vel<<", stop_dist = "<<stop_dist<<std::endl<<std::endl;
 
-	void normalizeEval( const std::vector<Vector6>& eval_vec )
+                                if( dist > stop_dist ){
+                                        Vector6 eval;
+                                        eval << v, w, heading, dist, vel, 0;
+                                        eval_vec.push_back( eval );
+                                }
+                        }
+                }
+        }
+
+
+	void normalizeEval( std::vector<Vector6>& eval_vec )
 	{
 		DataType sum_heading = 0;
 		DataType sum_dist = 0;
@@ -224,13 +277,13 @@ template<typename T>
 const typename DWA<T>::DataType DWA<T>::max_linear_velo = 0.06;
 
 template<typename T>
-const typename DWA<T>::DataType DWA<T>::max_angular_velo = 1.1;
+const typename DWA<T>::DataType DWA<T>::max_angular_velo = 1.0;
 
 template<typename T>
-const typename DWA<T>::DataType DWA<T>::linear_acc = 0.01;
+const typename DWA<T>::DataType DWA<T>::linear_acc = 0.5;
 
 template<typename T>
-const typename DWA<T>::DataType DWA<T>::angular_acc = 0.1;
+const typename DWA<T>::DataType DWA<T>::angular_acc = 5;
 
 template<typename T>
 const typename DWA<T>::DataType DWA<T>::linear_velo_resolution = 0.01;

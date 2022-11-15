@@ -7,7 +7,11 @@ int main()
 	
 	dwa::Simulator<float> sim;
 	sim.initObtacles();
-	cv::waitKey(0);	
+	
+	for( int i = 0; i < 100; i ++ ){
+		sim.dwaProcess();
+		cv::waitKey(0);	
+	}
 
 	return 0;
 }
