@@ -56,7 +56,7 @@ public:
 		normalizeEval( eval_vec );
 
 		for( int i = 0; i < eval_vec.size(); i ++ ){
-			eval_vec[i][5] = 0.3 * eval_vec[i][2] + 0.5 * eval_vec[i][3] + 0.3 * eval_vec[i][4];
+			eval_vec[i][5] = 0.5 * eval_vec[i][2] + 0.5 * eval_vec[i][3] + 0.3 * eval_vec[i][4];
 		}		
 
 		DataType max_score = std::numeric_limits<DataType>::min();
